@@ -19,6 +19,9 @@ jobs:
     - name: List Files
       run: Get-ChildItem -Recurse
 
+    - name: List Libs
+      run: if (Test-Path libs) { Get-ChildItem libs } else { Write-Host "libs folder NOT FOUND at root!" }
+
     - name: Restore NuGet Packages
       run: nuget restore SkidMenu.csproj
 
