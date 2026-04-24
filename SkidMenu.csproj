@@ -32,54 +32,54 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="0Harmony">
-      <HintPath>libs\0Harmony.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\0Harmony.dll</HintPath>
     </Reference>
     <Reference Include="Assembly-CSharp">
-      <HintPath>libs\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Assembly-CSharp.dll</HintPath>
     </Reference>
     <Reference Include="BepInEx.Core">
-      <HintPath>libs\BepInEx.Core.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\BepInEx.Core.dll</HintPath>
     </Reference>
     <Reference Include="BepInEx.Unity.IL2CPP">
-      <HintPath>libs\BepInEx.Unity.IL2CPP.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\BepInEx.Unity.IL2CPP.dll</HintPath>
     </Reference>
     <Reference Include="Hazel">
-      <HintPath>libs\Hazel.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Hazel.dll</HintPath>
     </Reference>
     <Reference Include="Il2CppInterop.Runtime">
-      <HintPath>libs\Il2CppInterop.Runtime.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Il2CppInterop.Runtime.dll</HintPath>
     </Reference>
     <Reference Include="Il2Cppmscorlib">
-      <HintPath>libs\Il2Cppmscorlib.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Il2Cppmscorlib.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="Unity.Addressables">
-      <HintPath>libs\Unity.Addressables.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Unity.Addressables.dll</HintPath>
     </Reference>
     <Reference Include="Unity.ResourceManager">
-      <HintPath>libs\Unity.ResourceManager.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Unity.ResourceManager.dll</HintPath>
     </Reference>
     <Reference Include="Unity.TextMeshPro">
-      <HintPath>libs\Unity.TextMeshPro.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\Unity.TextMeshPro.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>libs\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>libs\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>libs\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.Physics2DModule">
-      <HintPath>libs\UnityEngine.Physics2DModule.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\UnityEngine.Physics2DModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>libs\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath>libs\UnityEngine.UI.dll</HintPath>
+      <HintPath>$(MSBuildProjectDirectory)\libs\UnityEngine.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
