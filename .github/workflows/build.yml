@@ -1,7 +1,6 @@
 name: Build SkidMenu
 
 on:
-  push:
   workflow_dispatch:
 
 jobs:
