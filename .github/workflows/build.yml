@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.1
@@ -27,7 +27,7 @@ jobs:
       run: msbuild SkidMenu.csproj /p:Configuration=Release
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: SkidMenu-DLL
         path: bin/Release/SkidMenu.dll
