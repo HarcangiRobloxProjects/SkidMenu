@@ -1,6 +1,7 @@
 name: Build SkidMenu
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
@@ -15,6 +16,9 @@ jobs:
 
     - name: Setup NuGet
       uses: NuGet/setup-nuget@v1
+
+    - name: List Files
+      run: dir /s
 
     - name: Restore NuGet Packages
       run: nuget restore SkidMenu.csproj
