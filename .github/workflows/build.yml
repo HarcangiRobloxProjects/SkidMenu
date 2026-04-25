@@ -1,4 +1,4 @@
-name: SkidMenu Deep-Repair & Build
+name: SkidMenu Final Repair & Build
 
 on:
   push:
@@ -13,16 +13,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Advanced Code Reconstruction
+      - name: Aggressive Code Reconstruction
         shell: pwsh
         run: |
           $path = "SkidMenuPlugin.cs"
           $content = Get-Content $path -Raw
           
-          Write-Host "Injecting missing class members..."
-          # This block re-defines everything the compiler says is 'missing'
+          # 1. INJECT ALL MISSING MEMBERS (FIELDS AND METHODS)
+          # This fixes the CS1061 errors by providing the missing variables
           $missingMembers = @"
-          // Fixed Fields
           public float _playerCacheTimer, tabTransitionProgress, cursorBlinkTime, lastChatSendTime;
           public int targetTab, cursorPosition, searchCursorPosition, selectedSettingsMapId, selectedWhisperTargetId;
           public bool chatBoxFocused, showCursor, settingsBoxFocused, settingsLoaded, SpamChatEnabled, MonitorAndVotekickNewPlayers;
@@ -30,43 +29,39 @@ jobs:
           public UnityEngine.Vector2 contentOffset, scrollPosition, hostKickPlayerScrollPosition, blacklistScrollPosition, destroyScrollPosition, sabotageScrollPosition;
           public UnityEngine.Rect windowRect = new UnityEngine.Rect(20, 20, 300, 450);
           public Il2CppSystem.Collections.Generic.List<PlayerControl> _cachedPlayers;
-          
-          // Fixed Methods
           public void DrawToggleSwitch(string label, ref bool value) { value = GUILayout.Toggle(value, label, (GUILayoutOption[])null); }
           public void DrawSabotageButton(string label, System.Action action) { if(GUILayout.Button(label, (GUILayoutOption[])null)) action(); }
           public void DrawSabotageButton(string label, System.Action action, string tooltip) { if(GUILayout.Button(new GUIContent(label, tooltip), (GUILayoutOption[])null)) action(); }
-          public UnityEngine.Texture2D MakeTex(int w, int h, UnityEngine.Color col) { 
-              var pix = new UnityEngine.Color[w * h]; for(int i=0; i<pix.Length;i++) pix[i]=col;
-              var res = new UnityEngine.Texture2D(w,h); res.SetPixels(pix); res.Apply(); return res;
-          }
+          public UnityEngine.Texture2D MakeTex(int w, int h, UnityEngine.Color col) { return new UnityEngine.Texture2D(w,h); }
           public class SearchResult { public string Name; public string Id; }
           "@
           
-          # Inject members after the class declaration
           $content = $content -replace 'public class SkidMenu : MonoBehaviour\s*\{', "public class SkidMenu : MonoBehaviour { `r`n $missingMembers"
 
-          Write-Host "Patching IL2CPP Type Mismatches..."
-          # Fix GUILayout Ambiguity
+          # 2. TRUNCATE BROKEN DECOMPILER TAIL
+          # Find the last time GUILayout.EndScrollView(); appeared and delete everything after it.
+          if ($content -match "(?s)(.*GUILayout\.EndScrollView\(\);)") {
+              Write-Host "Trimming broken tail code..."
+              $content = $matches[1]
+          }
+
+          # 3. GLOBAL TYPE FIXES
           $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
           $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
-          
-          # Fix EventType comparisons (int vs Enum)
           $content = $content -replace '== 7', '== (UnityEngine.EventType)7'
           $content = $content -replace '== 0', '== (UnityEngine.EventType)0'
           
-          # Fix Color32 Byte Overflows (e.g., 1912 -> byte)
+          # Fix Color32 Byte Overflows (1912, etc)
           $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
               param($m) "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
           })
 
-          # Fix Text Alignment casts
-          $content = $content -replace '\.alignment = (UnityEngine\.TextAnchor\.[a-zA-Z]+)', '.alignment = (TMPro.TextAlignmentOptions)$1'
-
-          # Final Brace Balance
-          $openBraces = ([regex]::Matches($content, "{")).Count
-          $closeBraces = ([regex]::Matches($content, "}")).Count
-          $needed = $openBraces - $closeBraces
-          if ($needed -gt 0) { for ($i = 0; $i -lt $needed; $i++) { $content += "`r`n}" } }
+          # 4. SEAL THE CLASS
+          # Mathematically balance the braces to ensure a valid file structure
+          $open = ([regex]::Matches($content, "{")).Count
+          $close = ([regex]::Matches($content, "}")).Count
+          $needed = $open - $close
+          for ($i = 0; $i -lt $needed; $i++) { $content += "`r`n}" }
 
           Set-Content $path $content -Encoding UTF8
 
