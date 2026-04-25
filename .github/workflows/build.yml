@@ -1,8 +1,8 @@
-name: Auto-Fix and Build SkidMenu
+name: Auto-Fixer Build
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -10,41 +10,67 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix Syntax Errors
+    - name: Fix Project File (CSPROJ)
       shell: pwsh
       run: |
-        $filePath = "SkidMenuPlugin.cs"
-        $content = Get-Content $filePath -Raw
+        $projFile = "SkidMenu.csproj"
+        [xml]$xml = Get-Content $projFile
         
-        # Fix for line 14836/14856: Identify unclosed resize logic and close it
-        # This adds the 4 missing closing braces for the flag checks, the method, and the class
-        if ($content -match "bool flag3 = this.isResizing;") {
-            Write-Host "Detected unclosed resizing logic. Applying fix..."
-            if ($content -notmatch "\}\s*\}\s*\}\s*\}\s*$") {
-                $content = $content.TrimEnd() + "`r`n`t`t}`r`n`t}`r`n}`r`n}"
-                Set-Content $filePath $content
-                Write-Host "Syntax fix applied."
+        # Check if the PropertyGroup for Release|Any CPU exists, if not, create a basic one
+        # This fixes the "OutputPath property is not set" error
+        $ns = new-object Xml.XmlNamespaceManager $xml.NameTable
+        $ns.AddNamespace("ns", "http://schemas.microsoft.com/developer/msbuild/2003")
+        
+        if (-not ($xml.Project.PropertyGroup | Where-Object { $_.Condition -like "*Release|Any CPU*" })) {
+            Write-Host "Injecting missing Release|Any CPU configuration..."
+            $newGroup = $xml.CreateElement("PropertyGroup", $xml.DocumentElement.NamespaceURI)
+            $newGroup.SetAttribute("Condition", " '$(Configuration)|$(Platform)' == 'Release|Any CPU' ")
+            
+            $outPath = $xml.CreateElement("OutputPath", $xml.DocumentElement.NamespaceURI)
+            $outPath.InnerText = "bin\Release\"
+            
+            $newGroup.AppendChild($outPath) | Out-Null
+            $xml.Project.AppendChild($newGroup) | Out-Null
+            $xml.Save($projFile)
+        }
+
+    - name: Auto-Fix Source Code (Regex)
+      shell: pwsh
+      run: |
+        $files = Get-ChildItem -Recurse -Include *.cs
+        foreach ($file in $files) {
+            $content = Get-Content $file -Raw
+
+            # 1. Fix broken parentheses/syntax at the end of file (CS1026/CS1513)
+            if ($content -match "isResizing" -and $content -notmatch "\}\s*\}\s*\}\s*$") {
+                $content = $content.TrimEnd() + "`r`n        }`r`n    }`r`n}"
             }
+
+            # 2. Fix EventType comparisons
+            $content = $content -replace '== 7', '== EventType.Repaint'
+            $content = $content -replace '== 0', '== EventType.MouseDown'
+            
+            # 3. Fix Color32 overflows
+            $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
+                param($m)
+                "new Color32(unchecked((byte)$($m.Groups[1].Value)), unchecked((byte)$($m.Groups[2].Value)), unchecked((byte)$($m.Groups[3].Value)), unchecked((byte)$($m.Groups[4].Value)))"
+            })
+
+            Set-Content -Path $file -Value $content
         }
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: Setup NuGet
-      uses: nuget/setup-nuget@v1
-
-    - name: Restore NuGet Packages
-      run: nuget restore SkidMenu.csproj
-
     - name: Build Project
-      # Using /p:ContinueOnError=false to ensure we stop if the fix didn't work
+      # We force the Configuration and Platform to match what we injected
       run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
-    - name: Upload Fixed Plugin
+    - name: Upload Fixed DLL
       uses: actions/upload-artifact@v4
       with:
-        name: SkidMenu-Fixed
-        path: obj/Release/SkidMenu.dll
+        name: SkidMenu-Build
+        path: bin/Release/SkidMenu.dll
