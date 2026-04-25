@@ -1,4 +1,4 @@
-name: Build SkidMenu
+name: Build and Auto-Fix SkidMenu
 
 on:
   push:
@@ -9,47 +9,47 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix IL2CPP Errors
+    - name: Auto-Fix IL2CPP Compilation Errors
       shell: pwsh
       run: |
         $files = Get-ChildItem -Recurse -Include *.cs
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # --- 1. FIX AMBIGUOUS CALLS (CS0121) ---
-            # Explicitly cast null to GUILayoutOption array for IMGUI methods
+            # 1. FIX EVENTTYPE COMPARISONS (CS0019)
+            # Replaces '== 7' with '== EventType.Repaint' and '== 0' with '== EventType.MouseDown'
+            $content = $content -replace '== 7', '== EventType.Repaint'
+            $content = $content -replace '== 0', '== EventType.MouseDown'
+            $content = $content -replace 'EventType\.MouseDownL', 'EventType.MouseDown'
+
+            # 2. FIX BYTE OVERFLOWS (CS0221)
+            # Finds numbers like 1912 inside Color32 and wraps them in 'unchecked((byte)num)'
+            $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
+                param($m)
+                $r = $m.Groups[1].Value.Trim(); $g = $m.Groups[2].Value.Trim(); $b = $m.Groups[3].Value.Trim(); $a = $m.Groups[4].Value.Trim()
+                "new Color32(unchecked((byte)$r), unchecked((byte)$g), unchecked((byte)$b), unchecked((byte)$a))"
+            })
+
+            # 3. FIX GUILayout AMBIGUITY (CS0121)
+            # IL2CPP requires explicit null casting for GUILayout methods
             $content = $content -replace 'GUILayout\.BeginHorizontal\(null\)', 'GUILayout.BeginHorizontal((Il2CppReferenceArray<GUILayoutOption>)null)'
             $content = $content -replace 'GUILayout\.BeginVertical\(null\)', 'GUILayout.BeginVertical((Il2CppReferenceArray<GUILayoutOption>)null)'
             $content = $content -replace 'GUILayout\.BeginArea\(([^,)]+)\)', 'GUILayout.BeginArea($1, (GUIStyle)null)'
 
-            # --- 2. FIX BYTE CASTING (CS0266 / CS1503) ---
-            # Fix Color32: only cast numbers 0-255. Ignore 4-digit numbers like 1912.
-            $content = $content -replace 'new Color32\((?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
-            $content = $content -replace 'byte\.MaxValue', '(byte)255'
-
-            # --- 3. FIX ENUM COMPARISONS (CS0019) ---
-            # Fix EventType comparisons
-            $content = $content -replace '== 7', '== EventType.Repaint'
-            $content = $content -replace '== 0', '== EventType.MouseDown'
-            
-            # --- 4. FIX TEXT ALIGNMENT (CS0266) ---
-            # Map Unity TextAnchor to TMPro Alignment Options
-            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleCenter', 'TMPro.TextAlignmentOptions.Center'
+            # 4. FIX TEXT ALIGNMENT CASTING (CS0266)
+            # Casts int/Anchor values to TMPro Alignment
+            $content = $content -replace 'alignment = \(TextAnchor\)(\d+)', 'alignment = (TMPro.TextAlignmentOptions)$1'
             $content = $content -replace 'UnityEngine\.TextAnchor', 'TMPro.TextAlignmentOptions'
 
-            # --- 5. FIX NAMESPACE ISSUES (CS0246) ---
-            # Ensure HostCommandPatch has the Interop namespace for the array cast
-            if ($file.Name -eq "HostCommandPatch.cs" -and $content -notmatch "using Il2CppInterop.Runtime.InteropTypes.Arrays;") {
+            # 5. FIX NAMESPACE INJECTION
+            # Ensures the necessary Interop namespace is present for the casts above
+            if ($content -match "Il2CppReferenceArray" -and $content -notmatch "using Il2CppInterop.Runtime.InteropTypes.Arrays;") {
                 $content = "using Il2CppInterop.Runtime.InteropTypes.Arrays;`r`n" + $content
             }
 
-            # --- 6. CLEANUP SYNTAX ERRORS ---
-            # If a previous script left 'nullnull' or broken parens, fix them
-            $content = $content -replace 'nullnull', 'null'
-            
             Set-Content -Path $file -Value $content
         }
 
@@ -57,7 +57,7 @@ jobs:
       uses: microsoft/setup-msbuild@v2
 
     - name: Build Project
-    # Added /nowarn:CS0162 to hide the "Unreachable code" noise
+      # Suppressing unreachable code warnings to make errors easier to read
       run: msbuild SkidMenu.csproj /p:Configuration=Release /p:NoWarn=0162
 
     - name: Upload Artifact
