@@ -19,15 +19,15 @@ jobs:
         $projFile = "SkidMenu.csproj"
         [xml]$xml = Get-Content $projFile
         
-        # Check if the PropertyGroup for Release|Any CPU exists, if not, create a basic one
-        # This fixes the "OutputPath property is not set" error
-        $ns = new-object Xml.XmlNamespaceManager $xml.NameTable
-        $ns.AddNamespace("ns", "http://schemas.microsoft.com/developer/msbuild/2003")
+        # We must escape the $ symbols so PowerShell doesn't think they are PS variables
+        $conditionStr = " '`$(Configuration)|`$(Platform)' == 'Release|Any CPU' "
         
-        if (-not ($xml.Project.PropertyGroup | Where-Object { $_.Condition -like "*Release|Any CPU*" })) {
+        $existing = $xml.Project.PropertyGroup | Where-Object { $_.Condition -eq $conditionStr }
+        
+        if (-not $existing) {
             Write-Host "Injecting missing Release|Any CPU configuration..."
             $newGroup = $xml.CreateElement("PropertyGroup", $xml.DocumentElement.NamespaceURI)
-            $newGroup.SetAttribute("Condition", " '$(Configuration)|$(Platform)' == 'Release|Any CPU' ")
+            $newGroup.SetAttribute("Condition", $conditionStr)
             
             $outPath = $xml.CreateElement("OutputPath", $xml.DocumentElement.NamespaceURI)
             $outPath.InnerText = "bin\Release\"
@@ -35,25 +35,26 @@ jobs:
             $newGroup.AppendChild($outPath) | Out-Null
             $xml.Project.AppendChild($newGroup) | Out-Null
             $xml.Save($projFile)
+            Write-Host "Project file patched successfully."
         }
 
-    - name: Auto-Fix Source Code (Regex)
+    - name: Auto-Fix Source Code
       shell: pwsh
       run: |
         $files = Get-ChildItem -Recurse -Include *.cs
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # 1. Fix broken parentheses/syntax at the end of file (CS1026/CS1513)
+            # Fix broken syntax at end of file
             if ($content -match "isResizing" -and $content -notmatch "\}\s*\}\s*\}\s*$") {
                 $content = $content.TrimEnd() + "`r`n        }`r`n    }`r`n}"
             }
 
-            # 2. Fix EventType comparisons
+            # Fix EventType comparisons (int vs Enum)
             $content = $content -replace '== 7', '== EventType.Repaint'
             $content = $content -replace '== 0', '== EventType.MouseDown'
             
-            # 3. Fix Color32 overflows
+            # Fix Color32 byte overflows (e.g., 1912)
             $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
                 param($m)
                 "new Color32(unchecked((byte)$($m.Groups[1].Value)), unchecked((byte)$($m.Groups[2].Value)), unchecked((byte)$($m.Groups[3].Value)), unchecked((byte)$($m.Groups[4].Value)))"
@@ -66,10 +67,9 @@ jobs:
       uses: microsoft/setup-msbuild@v2
 
     - name: Build Project
-      # We force the Configuration and Platform to match what we injected
       run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
-    - name: Upload Fixed DLL
+    - name: Upload DLL
       uses: actions/upload-artifact@v4
       with:
         name: SkidMenu-Build
