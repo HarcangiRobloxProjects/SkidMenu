@@ -1,4 +1,4 @@
-name: SkidMenu Final Repair & Build
+name: SkidMenu Ultimate Repair
 
 on:
   push:
@@ -13,15 +13,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Aggressive Code Reconstruction
+      - name: Surgical Code Reconstruction
         shell: pwsh
         run: |
           $path = "SkidMenuPlugin.cs"
           $content = Get-Content $path -Raw
           
-          # 1. INJECT ALL MISSING MEMBERS (FIELDS AND METHODS)
-          # This fixes the CS1061 errors by providing the missing variables
-          $missingMembers = @"
+          Write-Host "Injecting Missing Definitions..."
+          # This block adds all the fields the decompiler missed
+          $injections = @"
+          // Automatically Reconstructed Fields
           public float _playerCacheTimer, tabTransitionProgress, cursorBlinkTime, lastChatSendTime;
           public int targetTab, cursorPosition, searchCursorPosition, selectedSettingsMapId, selectedWhisperTargetId;
           public bool chatBoxFocused, showCursor, settingsBoxFocused, settingsLoaded, SpamChatEnabled, MonitorAndVotekickNewPlayers;
@@ -29,35 +30,40 @@ jobs:
           public UnityEngine.Vector2 contentOffset, scrollPosition, hostKickPlayerScrollPosition, blacklistScrollPosition, destroyScrollPosition, sabotageScrollPosition;
           public UnityEngine.Rect windowRect = new UnityEngine.Rect(20, 20, 300, 450);
           public Il2CppSystem.Collections.Generic.List<PlayerControl> _cachedPlayers;
+          
+          // Reconstructed UI Helpers
           public void DrawToggleSwitch(string label, ref bool value) { value = GUILayout.Toggle(value, label, (GUILayoutOption[])null); }
           public void DrawSabotageButton(string label, System.Action action) { if(GUILayout.Button(label, (GUILayoutOption[])null)) action(); }
           public void DrawSabotageButton(string label, System.Action action, string tooltip) { if(GUILayout.Button(new GUIContent(label, tooltip), (GUILayoutOption[])null)) action(); }
-          public UnityEngine.Texture2D MakeTex(int w, int h, UnityEngine.Color col) { return new UnityEngine.Texture2D(w,h); }
+          public UnityEngine.Texture2D MakeTex(int w, int h, UnityEngine.Color col) { var t = new UnityEngine.Texture2D(w,h); return t; }
           public class SearchResult { public string Name; public string Id; }
           "@
           
-          $content = $content -replace 'public class SkidMenu : MonoBehaviour\s*\{', "public class SkidMenu : MonoBehaviour { `r`n $missingMembers"
+          # Insert definitions at the top of the SkidMenu class
+          $content = $content -replace 'public class SkidMenu : MonoBehaviour\s*\{', "public class SkidMenu : MonoBehaviour { `r`n $injections"
 
-          # 2. TRUNCATE BROKEN DECOMPILER TAIL
-          # Find the last time GUILayout.EndScrollView(); appeared and delete everything after it.
-          if ($content -match "(?s)(.*GUILayout\.EndScrollView\(\);)") {
-              Write-Host "Trimming broken tail code..."
-              $content = $matches[1]
-          }
-
-          # 3. GLOBAL TYPE FIXES
+          Write-Host "Cleaning IL2CPP Syntax..."
+          # Fix GUILayout Ambiguity
           $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
           $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+          
+          # Fix EventType and Alignment Casts
           $content = $content -replace '== 7', '== (UnityEngine.EventType)7'
           $content = $content -replace '== 0', '== (UnityEngine.EventType)0'
+          $content = $content -replace '\.alignment = (UnityEngine\.TextAnchor\.[a-zA-Z]+)', '.alignment = (TMPro.TextAlignmentOptions)$1'
           
-          # Fix Color32 Byte Overflows (1912, etc)
+          # Fix Color32 Byte Overflows
           $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
               param($m) "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
           })
 
-          # 4. SEAL THE CLASS
-          # Mathematically balance the braces to ensure a valid file structure
+          # 3. TRUNCATE BROKEN TAIL
+          # Removes the garbage after the last valid UI close
+          if ($content -match "(?s)(.*GUILayout\.EndScrollView\(\);)") {
+              $content = $matches[1]
+          }
+
+          # 4. SEAL BRACKETS
           $open = ([regex]::Matches($content, "{")).Count
           $close = ([regex]::Matches($content, "}")).Count
           $needed = $open - $close
@@ -75,5 +81,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Build
+          name: SkidMenu-Compiled
           path: bin/Release/SkidMenu.dll
