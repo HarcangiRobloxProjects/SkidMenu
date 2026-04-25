@@ -1,4 +1,4 @@
-name: SkidMenu Ultimate Repair
+name: SkidMenu Surgical Fixer
 
 on:
   push:
@@ -13,34 +13,31 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bulk Repair Source Code
+      - name: Surgical Code Repair
         shell: pwsh
         run: |
-          $files = Get-ChildItem -Recurse -Include *.cs
-          foreach ($file in $files) {
-              $content = Get-Content $file.FullName -Raw
-              Write-Host "Repairing $($file.Name)..."
+          $path = "SkidMenuPlugin.cs"
+          $content = Get-Content $path -Raw
+          Write-Host "Performing surgery on $path..."
 
-              # 1. Fix Ambiguous GUILayout calls
-              $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
-              $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+          # 1. Fix the truncated 'isResizing' lines (CS1026)
+          # This adds the missing ); that the decompiler forgot at the end of the line
+          $content = $content -replace 'this\.isResizing = flag4', 'this.isResizing = flag4;'
+          $content = $content -replace 'this\.isResizing = flag2', 'this.isResizing = flag2;'
 
-              # 2. Fix Color32 Byte Overflows (Constant 1912 etc)
-              $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
-                  param($m)
-                  "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
-              })
+          # 2. Fix the Ambiguous GUILayout calls (prevents the new errors)
+          $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
+          $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
 
-              # 3. Fix EventType vs Int comparisons
-              $content = $content -replace '== 7', '== (EventType)7'
-              $content = $content -replace '== 0', '== (EventType)0'
-              $content = $content -replace '== 3', '== (EventType)3'
+          # 3. Force-close the entire file structure (CS1513)
+          # We trim everything and add a clean exit
+          $content = $content.TrimEnd().TrimEnd('}')
+          $content = $content.TrimEnd().TrimEnd('}')
+          $content = $content.TrimEnd()
+          $content += "`r`n            }`r`n        }`r`n    }`r`n}"
 
-              # 4. Fix TextAnchor to TMPro alignment
-              $content = $content -replace '\.alignment = \(TextAnchor\)', '.alignment = (TMPro.TextAlignmentOptions)'
-
-              Set-Content $file.FullName $content -Encoding UTF8
-          }
+          Set-Content $path $content -Encoding UTF8
+          Write-Host "Surgery complete."
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -51,5 +48,5 @@ jobs:
       - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Fixed
+          name: SkidMenu-Final-Build
           path: bin/Release/SkidMenu.dll
