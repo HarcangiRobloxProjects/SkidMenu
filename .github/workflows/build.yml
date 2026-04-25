@@ -12,37 +12,37 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix IL2CPP Type Conflicts
+    - name: Auto-Fix IL2CPP Type Ambiguity and Casts
       shell: pwsh
       run: |
         $files = Get-ChildItem -Recurse -Include *.cs
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # 1. Fix Ambiguous GUILayout calls (Force cast to GUILayoutOption array)
-            $content = $content -replace 'GUILayout\.BeginHorizontal\(', 'GUILayout.BeginHorizontal((Il2CppReferenceArray<GUILayoutOption>)null'
-            $content = $content -replace 'GUILayout\.BeginVertical\(', 'GUILayout.BeginVertical((Il2CppReferenceArray<GUILayoutOption>)null'
-            # Cleanup double nulls if the line already had one
-            $content = $content -replace 'nullnull', 'null'
-
-            # 2. Fix Text Alignment (Handle both directions of conversion errors)
-            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleCenter', 'TMPro.TextAlignmentOptions.Center'
-            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleLeft', 'TMPro.TextAlignmentOptions.Left'
-            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleRight', 'TMPro.TextAlignmentOptions.Right'
+            # 1. Resolve GUILayout Ambiguity (CS0121)
+            # IL2CPP requires explicit casting to (GUILayoutOption[]) for BeginHorizontal/Vertical
+            $content = $content -replace 'GUILayout\.BeginHorizontal\(null\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
+            $content = $content -replace 'GUILayout\.BeginVertical\(null\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+            $content = $content -replace 'GUILayout\.BeginArea\(rect2\)', 'GUILayout.BeginArea(rect2, (GUIStyle)null)'
             
-            # 3. Fix Color32 Byte Casting (Crucial for CS0266 and CS1503)
-            # This looks for 4 numbers in a Color32 constructor and forces (byte) on all of them
+            # 2. Fix Text Alignment and Style Enums (CS0266)
+            # IMGUI often uses ints, but IL2CPP requires the specific Enum type
+            $content = $content -replace '\(TextAnchor\)4', 'UnityEngine.TextAnchor.MiddleCenter'
+            $content = $content -replace '\(FontStyle\)1', 'UnityEngine.FontStyle.Bold'
+            
+            # 3. Force Byte Casting for Color32 (CS1503)
+            # The compiler fails to implicitly convert ints (0-255) to bytes in BepInEx 6
             $content = $content -replace 'new Color32\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
             $content = $content -replace 'byte\.MaxValue', '(byte)255'
 
-            # 4. Fix EventType comparison (CS0019)
-            # Replaces numeric event types with their Enum equivalents
-            $content = $content -replace '== 7', '== EventType.Repaint'
-            $content = $content -replace '== 0', '== EventType.MouseDown'
-            
-            # 5. Fix remaining "int to byte" implicit conversions by wrapping them in unchecked casts
-            # Target common areas like line 291 and 347 in SkidMenuPlugin
-            $content = $content -replace '(?<!\(byte\))(\d{1,4})\)', '(byte)$1)'
+            # 4. Fix EventType Ambiguity (CS0019)
+            # Replaces (EventType)3 and (EventType)1 with proper names for better compatibility
+            $content = $content -replace '\(EventType\)3', 'EventType.MouseDrag'
+            $content = $content -replace '\(EventType\)1', 'EventType.MouseUp'
+
+            # 5. Fix Array Conversions
+            # Helps with PlayerControl.AllPlayerControls.ToArray() ambiguity
+            $content = $content -replace '\.ToArray\(\)', '.Cast<Il2CppReferenceArray<PlayerControl>>().ToArray()'
 
             Set-Content -Path $file -Value $content
         }
