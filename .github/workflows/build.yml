@@ -19,25 +19,27 @@ jobs:
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # 1. Fix Ambiguous GUILayout calls (Cast null to resolve method ambiguity)
+            # 1. Fix Ambiguous GUILayout calls
             $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
             $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
 
-            # 2. Fix Byte conversion errors (e.g., Color32 and byte.MaxValue)
+            # 2. Fix Text Alignment (Converting back to TextAnchor where requested by compiler)
+            $content = $content -replace 'TMPro\.TextAlignmentOptions\.Center', 'UnityEngine.TextAnchor.MiddleCenter'
+            $content = $content -replace 'TMPro\.TextAlignmentOptions\.Left', 'UnityEngine.TextAnchor.MiddleLeft'
+            $content = $content -replace 'TMPro\.TextAlignmentOptions\.Right', 'UnityEngine.TextAnchor.MiddleRight'
+            
+            # 3. Fix Byte conversion for Color32 and small constants
             $content = $content -replace 'byte\.MaxValue', '(byte)255'
             $content = $content -replace 'new Color32\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
 
-            # 3. Fix Text Alignment (TextAnchor to TextAlignmentOptions)
-            $content = $content -replace '\(TextAnchor\)4', 'TMPro.TextAlignmentOptions.Center'
-            $content = $content -replace 'alignment = \(TextAnchor\)(\d+)', 'alignment = TMPro.TextAlignmentOptions.Center'
+            # 4. Fix Constant overflow (CS0221) for values like 1912
+            $content = $content -replace '(?<!unchecked\()\(byte\)(\d{4,})', 'unchecked((byte)$1)'
+            $content = $content -replace '(?<!unchecked\()(\d{4,})m', 'unchecked((byte)$1)'
 
-            # 4. Fix EventType comparisons (EventType to int)
+            # 5. Fix EventType comparisons
             $content = $content -replace 'Event\.current\.type == 7', 'Event.current.type == EventType.Repaint'
             $content = $content -replace 'Event\.current\.type == 0', 'Event.current.type == EventType.MouseDown'
             
-            # 5. Remove invalid null checks on Enums
-            $content = $content -replace 'if \(Event\.current\.type != null\)', 'if (true)'
-
             Set-Content -Path $file -Value $content
         }
 
