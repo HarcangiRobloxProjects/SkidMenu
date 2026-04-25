@@ -1,4 +1,4 @@
-name: SkidMenu Final Precision Build
+name: SkidMenu Final Brace Alignment
 
 on:
   push:
@@ -13,13 +13,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Precision Code Repair
+      - name: Final Syntax Repair
         shell: pwsh
         run: |
           $path = "SkidMenuPlugin.cs"
           $content = Get-Content $path -Raw
           
-          Write-Host "Repairing syntax and fixing brace count..."
+          Write-Host "Re-aligning braces for the final time..."
 
           # 1. Fix the truncated logic lines
           $content = $content -replace 'this\.isResizing = flag4', 'this.isResizing = flag4;'
@@ -29,11 +29,14 @@ jobs:
           $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
           $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
 
-          # 3. THE BRACE FIX: Remove all trailing braces and whitespace, then add exactly THREE.
-          # Most plugins have: Class { Method { CODE } } Namespace }
-          # Since the decompiler cut off inside a method, we need 3 to close Method, Class, and Namespace.
+          # 3. THE 4-BRACE SOLUTION
+          # We shave off everything at the end and add exactly 4 braces.
+          # 1: Close the truncated logic block/method
+          # 2: Close the Method/Class member
+          # 3: Close the Class
+          # 4: Close the Namespace
           $content = $content.TrimEnd().TrimEnd('}').TrimEnd().TrimEnd('}').TrimEnd().TrimEnd('}').TrimEnd().TrimEnd('}')
-          $content += "`r`n        }`r`n    }`r`n}"
+          $content += "`r`n            }`r`n        }`r`n    }`r`n}"
 
           Set-Content $path $content -Encoding UTF8
 
@@ -43,8 +46,10 @@ jobs:
       - name: Build Project
         run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
+    # Only upload if the build actually succeeds this time!
       - name: Upload DLL
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Standard-Build
+          name: SkidMenu-Built-DLL
           path: bin/Release/SkidMenu.dll
