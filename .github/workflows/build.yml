@@ -12,36 +12,44 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix IL2CPP Type Conflicts
+    - name: Auto-Fix IL2CPP Errors
       shell: pwsh
       run: |
         $files = Get-ChildItem -Recurse -Include *.cs
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # 1. Add missing namespaces to HostCommandPatch
+            # --- 1. FIX AMBIGUOUS CALLS (CS0121) ---
+            # Explicitly cast null to GUILayoutOption array for IMGUI methods
+            $content = $content -replace 'GUILayout\.BeginHorizontal\(null\)', 'GUILayout.BeginHorizontal((Il2CppReferenceArray<GUILayoutOption>)null)'
+            $content = $content -replace 'GUILayout\.BeginVertical\(null\)', 'GUILayout.BeginVertical((Il2CppReferenceArray<GUILayoutOption>)null)'
+            $content = $content -replace 'GUILayout\.BeginArea\(([^,)]+)\)', 'GUILayout.BeginArea($1, (GUIStyle)null)'
+
+            # --- 2. FIX BYTE CASTING (CS0266 / CS1503) ---
+            # Fix Color32: only cast numbers 0-255. Ignore 4-digit numbers like 1912.
+            $content = $content -replace 'new Color32\((?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
+            $content = $content -replace 'byte\.MaxValue', '(byte)255'
+
+            # --- 3. FIX ENUM COMPARISONS (CS0019) ---
+            # Fix EventType comparisons
+            $content = $content -replace '== 7', '== EventType.Repaint'
+            $content = $content -replace '== 0', '== EventType.MouseDown'
+            
+            # --- 4. FIX TEXT ALIGNMENT (CS0266) ---
+            # Map Unity TextAnchor to TMPro Alignment Options
+            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleCenter', 'TMPro.TextAlignmentOptions.Center'
+            $content = $content -replace 'UnityEngine\.TextAnchor', 'TMPro.TextAlignmentOptions'
+
+            # --- 5. FIX NAMESPACE ISSUES (CS0246) ---
+            # Ensure HostCommandPatch has the Interop namespace for the array cast
             if ($file.Name -eq "HostCommandPatch.cs" -and $content -notmatch "using Il2CppInterop.Runtime.InteropTypes.Arrays;") {
                 $content = "using Il2CppInterop.Runtime.InteropTypes.Arrays;`r`n" + $content
             }
 
-            # 2. Fix GUILayout Ambiguity (Force cast to GUILayoutOption array)
-            # We use the full namespace to prevent CS0246 errors
-            $content = $content -replace 'GUILayout\.BeginHorizontal\(', 'GUILayout.BeginHorizontal((Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppReferenceArray<GUILayoutOption>)null'
-            $content = $content -replace 'GUILayout\.BeginVertical\(', 'GUILayout.BeginVertical((Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppReferenceArray<GUILayoutOption>)null'
+            # --- 6. CLEANUP SYNTAX ERRORS ---
+            # If a previous script left 'nullnull' or broken parens, fix them
             $content = $content -replace 'nullnull', 'null'
-
-            # 3. Fix Color32 Byte Casting (Only for numbers 0-255)
-            # This ignores large numbers like 1912 that were causing CS0221
-            $content = $content -replace 'new Color32\((?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
-            $content = $content -replace 'byte\.MaxValue', '(byte)255'
-
-            # 4. Fix EventType comparison (CS0019)
-            $content = $content -replace '== 7', '== EventType.Repaint'
-            $content = $content -replace '== 0', '== EventType.MouseDown'
             
-            # 5. Fix TMPro Alignment
-            $content = $content -replace 'UnityEngine\.TextAnchor', 'TMPro.TextAlignmentOptions'
-
             Set-Content -Path $file -Value $content
         }
 
@@ -49,7 +57,8 @@ jobs:
       uses: microsoft/setup-msbuild@v2
 
     - name: Build Project
-      run: msbuild SkidMenu.csproj /p:Configuration=Release
+    # Added /nowarn:CS0162 to hide the "Unreachable code" noise
+      run: msbuild SkidMenu.csproj /p:Configuration=Release /p:NoWarn=0162
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
