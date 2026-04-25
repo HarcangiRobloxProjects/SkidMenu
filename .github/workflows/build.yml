@@ -14,6 +14,29 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Auto-Fix Code Syntax
+      shell: pwsh
+      run: |
+        # 1. Fix Ambiguous GUILayout calls
+        $files = Get-ChildItem -Recurse -Include *.cs
+        foreach ($file in $files) {
+            (Get-Content $file) -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)' `
+                             -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)' `
+                             -replace 'byte\.MaxValue', '(byte)255' `
+                             -replace '\(TextAnchor\)4', 'TMPro.TextAlignmentOptions.Center' | 
+            Set-Content $file
+        }
+
+        # 2. Fix EventType and Byte constants
+        # This fixes the specific '1912' and 'EventType == 7' errors
+        (Get-Content HostCommandPatch.cs) -replace '== 7', '== EventType.Repaint' `
+                                         -replace '== 0', '== EventType.MouseDown' | Set-Content HostCommandPatch.cs
+        
+        (Get-Content SkidMenuPlugin.cs) -replace '1912', 'unchecked((byte)1912)' `
+                                        -replace '1913', 'unchecked((byte)1913)' `
+                                        -replace '1914', 'unchecked((byte)1914)' `
+                                        -replace '1915', 'unchecked((byte)1915)' | Set-Content SkidMenuPlugin.cs
+
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
