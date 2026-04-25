@@ -1,4 +1,4 @@
-name: SkidMenu Final Fixer
+name: SkidMenu Ultimate Repair
 
 on:
   push:
@@ -9,28 +9,45 @@ jobs:
   build:
     runs-on: windows-latest
 
-    steps:
+  steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Clean and Repair Source Code
+    - name: Bulk Repair Source Code
       shell: pwsh
       run: |
-        $path = "SkidMenuPlugin.cs"
-        $content = Get-Content $path -Raw
-        
-        # Remove all trailing closing braces and whitespace to start fresh
-        Write-Host "Cleaning up excess braces..."
-        $content = $content.TrimEnd().TrimEnd('}')
-        $content = $content.TrimEnd().TrimEnd('}')
-        $content = $content.TrimEnd().TrimEnd('}')
-        $content = $content.TrimEnd().TrimEnd('}')
+        $files = Get-ChildItem -Recurse -Include *.cs
+        foreach ($file in $files) {
+            $content = Get-Content $file.FullName -Raw
+            Write-Host "Repairing $($file.Name)..."
 
-        # Re-add exactly four braces to close the logic, method, class, and namespace
-        $content += "`r`n            }`r`n        }`r`n    }`r`n}"
-        
-        Set-Content $path $content
-        Write-Host "File cleaned and closed properly."
+            # 1. Fix Ambiguous GUILayout.BeginHorizontal/Vertical
+            # Changes BeginHorizontal() to BeginHorizontal((GUILayoutOption[])null)
+            $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
+            $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.Vertical((GUILayoutOption[])null)'
+
+            # 2. Fix Color32 Byte Overflows (CS0221)
+            # Wraps the parameters in unchecked((byte)X) so 1912 doesn't crash the build
+            $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
+                param($m)
+                "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
+            })
+
+            # 3. Fix EventType vs Int comparisons (CS0019)
+            # Casts the int to EventType so the comparison works
+            $content = $content -replace '== 7', '== (EventType)7'
+            $content = $content -replace '== 0', '== (EventType)0'
+            $content = $content -replace '== 3', '== (EventType)3'
+
+            # 4. Fix TextAnchor to TextAlignmentOptions (TMPro)
+            $content = $content -replace '\.alignment = \(TextAnchor\)', '.alignment = (TMPro.TextAlignmentOptions)'
+
+            # 5. Fix remaining lone byte casts (CS0266)
+            # Forces explicit casting for common decompiler mistakes
+            $content = $content -replace 'new byte\[\] { (\d+) }', 'new byte[] { (byte)$1 }'
+
+            Set-Content $file.FullName $content -Encoding UTF8
+        }
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
@@ -41,5 +58,5 @@ jobs:
     - name: Upload DLL
       uses: actions/upload-artifact@v4
       with:
-        name: SkidMenu-Build
+        name: SkidMenu-Fixed
         path: bin/Release/SkidMenu.dll
