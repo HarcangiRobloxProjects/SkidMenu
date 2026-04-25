@@ -1,4 +1,4 @@
-name: SkidMenu Auto-Fixer Build
+name: SkidMenu Final Fixer
 
 on:
   push:
@@ -13,45 +13,33 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Fix C# Syntax Errors
+    - name: Clean and Repair Source Code
       shell: pwsh
       run: |
         $path = "SkidMenuPlugin.cs"
-        if (Test-Path $path) {
-            $content = Get-Content $path -Raw
-            Write-Host "Analyzing $path for syntax errors..."
+        $content = Get-Content $path -Raw
+        
+        # Remove all trailing closing braces and whitespace to start fresh
+        Write-Host "Cleaning up excess braces..."
+        $content = $content.TrimEnd().TrimEnd('}')
+        $content = $content.TrimEnd().TrimEnd('}')
+        $content = $content.TrimEnd().TrimEnd('}')
+        $content = $content.TrimEnd().TrimEnd('}')
 
-            # Fix 1: Close the truncated isResizing block (CS1026 & CS1513)
-            # This looks for the last 'isResizing' check and ensures it's closed properly
-            if ($content -match "this.isResizing") {
-                Write-Host "Found unclosed logic. Adding missing braces..."
-                # We trim trailing whitespace and append the missing closures
-                $content = $content.TrimEnd()
-                # Adds: } (if flag4) } (if flag3) } (Method) } (Class)
-                $content += "`r`n            }`r`n        }`r`n    }`r`n}"
-            }
-
-            # Fix 2: Fix EventType casting errors (int vs Enum)
-            # Some decompilers leave (EventType)7 or == 0 which causes errors
-            $content = $content -replace '== \(EventType\)3', '== EventType.MouseUp'
-            $content = $content -replace '== 7', '== EventType.Repaint'
-            
-            Set-Content $path $content
-            Write-Host "Repair complete."
-        }
+        # Re-add exactly four braces to close the logic, method, class, and namespace
+        $content += "`r`n            }`r`n        }`r`n    }`r`n}"
+        
+        Set-Content $path $content
+        Write-Host "File cleaned and closed properly."
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: Restore NuGet Packages
-      run: nuget restore SkidMenu.csproj
-
     - name: Build Project
-      # Your fixed CSPROJ now supports this exact string
       run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
-    - name: Upload Repaired Plugin
+    - name: Upload DLL
       uses: actions/upload-artifact@v4
       with:
-        name: SkidMenu-Fixed-DLL
+        name: SkidMenu-Build
         path: bin/Release/SkidMenu.dll
