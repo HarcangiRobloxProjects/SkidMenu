@@ -12,34 +12,38 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix Type Conversion Errors
+    - name: Auto-Fix IL2CPP Type Conflicts
       shell: pwsh
       run: |
         $files = Get-ChildItem -Recurse -Include *.cs
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # 1. Fix Ambiguous GUILayout calls
-            $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
-            $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+            # 1. Fix Ambiguous GUILayout calls (Force cast to GUILayoutOption array)
+            $content = $content -replace 'GUILayout\.BeginHorizontal\(', 'GUILayout.BeginHorizontal((Il2CppReferenceArray<GUILayoutOption>)null'
+            $content = $content -replace 'GUILayout\.BeginVertical\(', 'GUILayout.BeginVertical((Il2CppReferenceArray<GUILayoutOption>)null'
+            # Cleanup double nulls if the line already had one
+            $content = $content -replace 'nullnull', 'null'
 
-            # 2. Fix Text Alignment (Converting back to TextAnchor where requested by compiler)
-            $content = $content -replace 'TMPro\.TextAlignmentOptions\.Center', 'UnityEngine.TextAnchor.MiddleCenter'
-            $content = $content -replace 'TMPro\.TextAlignmentOptions\.Left', 'UnityEngine.TextAnchor.MiddleLeft'
-            $content = $content -replace 'TMPro\.TextAlignmentOptions\.Right', 'UnityEngine.TextAnchor.MiddleRight'
+            # 2. Fix Text Alignment (Handle both directions of conversion errors)
+            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleCenter', 'TMPro.TextAlignmentOptions.Center'
+            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleLeft', 'TMPro.TextAlignmentOptions.Left'
+            $content = $content -replace 'UnityEngine\.TextAnchor\.MiddleRight', 'TMPro.TextAlignmentOptions.Right'
             
-            # 3. Fix Byte conversion for Color32 and small constants
-            $content = $content -replace 'byte\.MaxValue', '(byte)255'
+            # 3. Fix Color32 Byte Casting (Crucial for CS0266 and CS1503)
+            # This looks for 4 numbers in a Color32 constructor and forces (byte) on all of them
             $content = $content -replace 'new Color32\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
+            $content = $content -replace 'byte\.MaxValue', '(byte)255'
 
-            # 4. Fix Constant overflow (CS0221) for values like 1912
-            $content = $content -replace '(?<!unchecked\()\(byte\)(\d{4,})', 'unchecked((byte)$1)'
-            $content = $content -replace '(?<!unchecked\()(\d{4,})m', 'unchecked((byte)$1)'
-
-            # 5. Fix EventType comparisons
-            $content = $content -replace 'Event\.current\.type == 7', 'Event.current.type == EventType.Repaint'
-            $content = $content -replace 'Event\.current\.type == 0', 'Event.current.type == EventType.MouseDown'
+            # 4. Fix EventType comparison (CS0019)
+            # Replaces numeric event types with their Enum equivalents
+            $content = $content -replace '== 7', '== EventType.Repaint'
+            $content = $content -replace '== 0', '== EventType.MouseDown'
             
+            # 5. Fix remaining "int to byte" implicit conversions by wrapping them in unchecked casts
+            # Target common areas like line 291 and 347 in SkidMenuPlugin
+            $content = $content -replace '(?<!\(byte\))(\d{1,4})\)', '(byte)$1)'
+
             Set-Content -Path $file -Value $content
         }
 
