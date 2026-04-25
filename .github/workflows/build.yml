@@ -1,67 +1,50 @@
-name: Build and Auto-Fix SkidMenu
+name: Auto-Fix and Build SkidMenu
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Code
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Auto-Fix IL2CPP Compilation Errors
+    - name: Auto-Fix Syntax Errors
       shell: pwsh
       run: |
-        $files = Get-ChildItem -Recurse -Include *.cs
-        foreach ($file in $files) {
-            $content = Get-Content $file -Raw
-
-            # 1. FIX EVENTTYPE COMPARISONS (CS0019)
-            # Replaces '== 7' with '== EventType.Repaint' and '== 0' with '== EventType.MouseDown'
-            $content = $content -replace '== 7', '== EventType.Repaint'
-            $content = $content -replace '== 0', '== EventType.MouseDown'
-            $content = $content -replace 'EventType\.MouseDownL', 'EventType.MouseDown'
-
-            # 2. FIX BYTE OVERFLOWS (CS0221)
-            # Finds numbers like 1912 inside Color32 and wraps them in 'unchecked((byte)num)'
-            $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
-                param($m)
-                $r = $m.Groups[1].Value.Trim(); $g = $m.Groups[2].Value.Trim(); $b = $m.Groups[3].Value.Trim(); $a = $m.Groups[4].Value.Trim()
-                "new Color32(unchecked((byte)$r), unchecked((byte)$g), unchecked((byte)$b), unchecked((byte)$a))"
-            })
-
-            # 3. FIX GUILayout AMBIGUITY (CS0121)
-            # IL2CPP requires explicit null casting for GUILayout methods
-            $content = $content -replace 'GUILayout\.BeginHorizontal\(null\)', 'GUILayout.BeginHorizontal((Il2CppReferenceArray<GUILayoutOption>)null)'
-            $content = $content -replace 'GUILayout\.BeginVertical\(null\)', 'GUILayout.BeginVertical((Il2CppReferenceArray<GUILayoutOption>)null)'
-            $content = $content -replace 'GUILayout\.BeginArea\(([^,)]+)\)', 'GUILayout.BeginArea($1, (GUIStyle)null)'
-
-            # 4. FIX TEXT ALIGNMENT CASTING (CS0266)
-            # Casts int/Anchor values to TMPro Alignment
-            $content = $content -replace 'alignment = \(TextAnchor\)(\d+)', 'alignment = (TMPro.TextAlignmentOptions)$1'
-            $content = $content -replace 'UnityEngine\.TextAnchor', 'TMPro.TextAlignmentOptions'
-
-            # 5. FIX NAMESPACE INJECTION
-            # Ensures the necessary Interop namespace is present for the casts above
-            if ($content -match "Il2CppReferenceArray" -and $content -notmatch "using Il2CppInterop.Runtime.InteropTypes.Arrays;") {
-                $content = "using Il2CppInterop.Runtime.InteropTypes.Arrays;`r`n" + $content
+        $filePath = "SkidMenuPlugin.cs"
+        $content = Get-Content $filePath -Raw
+        
+        # Fix for line 14836/14856: Identify unclosed resize logic and close it
+        # This adds the 4 missing closing braces for the flag checks, the method, and the class
+        if ($content -match "bool flag3 = this.isResizing;") {
+            Write-Host "Detected unclosed resizing logic. Applying fix..."
+            if ($content -notmatch "\}\s*\}\s*\}\s*\}\s*$") {
+                $content = $content.TrimEnd() + "`r`n`t`t}`r`n`t}`r`n}`r`n}"
+                Set-Content $filePath $content
+                Write-Host "Syntax fix applied."
             }
-
-            Set-Content -Path $file -Value $content
         }
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: Build Project
-      # Suppressing unreachable code warnings to make errors easier to read
-      run: msbuild SkidMenu.csproj /p:Configuration=Release /p:NoWarn=0162
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v1
 
-    - name: Upload Artifact
+    - name: Restore NuGet Packages
+      run: nuget restore SkidMenu.csproj
+
+    - name: Build Project
+      # Using /p:ContinueOnError=false to ensure we stop if the fix didn't work
+      run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
+
+    - name: Upload Fixed Plugin
       uses: actions/upload-artifact@v4
       with:
-        name: SkidMenu-Plugin
-        path: bin/Release/SkidMenu.dll
+        name: SkidMenu-Fixed
+        path: obj/Release/SkidMenu.dll
