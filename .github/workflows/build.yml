@@ -1,4 +1,4 @@
-name: SkidMenu Total Seal & Build
+name: SkidMenu Deep-Repair & Build
 
 on:
   push:
@@ -13,42 +13,60 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Aggressive Tail Repair
+      - name: Advanced Code Reconstruction
         shell: pwsh
         run: |
           $path = "SkidMenuPlugin.cs"
           $content = Get-Content $path -Raw
           
-          # 1. REMOVE DECOMPILER TAIL
-          # We find the last occurrence of a closed block followed by typical decompiler garbage
-          # and truncate the file significantly to ensure we aren't mid-expression.
-          if ($content -match "(?s)(.*GUILayout\.EndScrollView\(\);)") {
-              Write-Host "Found stable UI end point. Truncating file tail..."
-              $content = $matches[1]
-          }
+          Write-Host "Injecting missing class members..."
+          # This block re-defines everything the compiler says is 'missing'
+          $missingMembers = @"
+          // Fixed Fields
+          public float _playerCacheTimer, tabTransitionProgress, cursorBlinkTime, lastChatSendTime;
+          public int targetTab, cursorPosition, searchCursorPosition, selectedSettingsMapId, selectedWhisperTargetId;
+          public bool chatBoxFocused, showCursor, settingsBoxFocused, settingsLoaded, SpamChatEnabled, MonitorAndVotekickNewPlayers;
+          public string chatMessage, searchQuery, settingInputBuffer, blacklistAddedMessage, blacklistInput;
+          public UnityEngine.Vector2 contentOffset, scrollPosition, hostKickPlayerScrollPosition, blacklistScrollPosition, destroyScrollPosition, sabotageScrollPosition;
+          public UnityEngine.Rect windowRect = new UnityEngine.Rect(20, 20, 300, 450);
+          public Il2CppSystem.Collections.Generic.List<PlayerControl> _cachedPlayers;
           
-          # 2. INJECT MISSING HELPERS
-          # The previous logs showed DrawSabotageButton was missing. We add it here.
-          $helpers = @"
-          public void DrawSabotageButton(string label, System.Action action) { 
-              if (GUILayout.Button(label, (GUILayoutOption[])null)) action(); 
+          // Fixed Methods
+          public void DrawToggleSwitch(string label, ref bool value) { value = GUILayout.Toggle(value, label, (GUILayoutOption[])null); }
+          public void DrawSabotageButton(string label, System.Action action) { if(GUILayout.Button(label, (GUILayoutOption[])null)) action(); }
+          public void DrawSabotageButton(string label, System.Action action, string tooltip) { if(GUILayout.Button(new GUIContent(label, tooltip), (GUILayoutOption[])null)) action(); }
+          public UnityEngine.Texture2D MakeTex(int w, int h, UnityEngine.Color col) { 
+              var pix = new UnityEngine.Color[w * h]; for(int i=0; i<pix.Length;i++) pix[i]=col;
+              var res = new UnityEngine.Texture2D(w,h); res.SetPixels(pix); res.Apply(); return res;
           }
+          public class SearchResult { public string Name; public string Id; }
           "@
-          $content = $content -replace 'public class SkidMenu : MonoBehaviour\s*\{', "public class SkidMenu : MonoBehaviour { `r`n $helpers"
+          
+          # Inject members after the class declaration
+          $content = $content -replace 'public class SkidMenu : MonoBehaviour\s*\{', "public class SkidMenu : MonoBehaviour { `r`n $missingMembers"
 
-          # 3. FIX IL2CPP TYPES
+          Write-Host "Patching IL2CPP Type Mismatches..."
+          # Fix GUILayout Ambiguity
           $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
           $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+          
+          # Fix EventType comparisons (int vs Enum)
+          $content = $content -replace '== 7', '== (UnityEngine.EventType)7'
+          $content = $content -replace '== 0', '== (UnityEngine.EventType)0'
+          
+          # Fix Color32 Byte Overflows (e.g., 1912 -> byte)
           $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
               param($m) "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
           })
 
-          # 4. MATHEMATICAL BRACE BALANCE
-          # This counts { and } and adds exactly what is needed to close the file.
+          # Fix Text Alignment casts
+          $content = $content -replace '\.alignment = (UnityEngine\.TextAnchor\.[a-zA-Z]+)', '.alignment = (TMPro.TextAlignmentOptions)$1'
+
+          # Final Brace Balance
           $openBraces = ([regex]::Matches($content, "{")).Count
           $closeBraces = ([regex]::Matches($content, "}")).Count
           $needed = $openBraces - $closeBraces
-          for ($i = 0; $i -lt $needed; $i++) { $content += "`r`n}" }
+          if ($needed -gt 0) { for ($i = 0; $i -lt $needed; $i++) { $content += "`r`n}" } }
 
           Set-Content $path $content -Encoding UTF8
 
@@ -62,5 +80,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Final
+          name: SkidMenu-Build
           path: bin/Release/SkidMenu.dll
