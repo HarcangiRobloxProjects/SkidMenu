@@ -12,23 +12,34 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix Decompiler Errors
+    - name: Auto-Fix Type Conversion Errors
       shell: pwsh
       run: |
-        $file = "SkidMenuPlugin.cs"
-        $content = Get-Content $file -Raw
+        $files = Get-ChildItem -Recurse -Include *.cs
+        foreach ($file in $files) {
+            $content = Get-Content $file -Raw
 
-        # 1. Fix the byte casting errors (e.g., Write((byte)1912) -> Write(unchecked((byte)1912)))
-        $content = $content -replace 'Write\(\(byte\)(\d+)\)', 'Write(unchecked((byte)$1))'
-        
-        # 2. Fix the common missing parenthesis in GUILayout calls
-        $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
-        $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+            # 1. Fix Ambiguous GUILayout calls (Cast null to resolve method ambiguity)
+            $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
+            $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
 
-        # 3. Fix EventType comparison (common IL2CPP error)
-        $content = $content -replace '== 7', '== EventType.Repaint'
-        
-        Set-Content -Path $file -Value $content
+            # 2. Fix Byte conversion errors (e.g., Color32 and byte.MaxValue)
+            $content = $content -replace 'byte\.MaxValue', '(byte)255'
+            $content = $content -replace 'new Color32\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
+
+            # 3. Fix Text Alignment (TextAnchor to TextAlignmentOptions)
+            $content = $content -replace '\(TextAnchor\)4', 'TMPro.TextAlignmentOptions.Center'
+            $content = $content -replace 'alignment = \(TextAnchor\)(\d+)', 'alignment = TMPro.TextAlignmentOptions.Center'
+
+            # 4. Fix EventType comparisons (EventType to int)
+            $content = $content -replace 'Event\.current\.type == 7', 'Event.current.type == EventType.Repaint'
+            $content = $content -replace 'Event\.current\.type == 0', 'Event.current.type == EventType.MouseDown'
+            
+            # 5. Remove invalid null checks on Enums
+            $content = $content -replace 'if \(Event\.current\.type != null\)', 'if (true)'
+
+            Set-Content -Path $file -Value $content
+        }
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
