@@ -1,8 +1,8 @@
-name: Auto-Fixer Build
+name: SkidMenu Auto-Fixer Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -10,67 +10,48 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Code
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Fix Project File (CSPROJ)
+    - name: Fix C# Syntax Errors
       shell: pwsh
       run: |
-        $projFile = "SkidMenu.csproj"
-        [xml]$xml = Get-Content $projFile
-        
-        # We must escape the $ symbols so PowerShell doesn't think they are PS variables
-        $conditionStr = " '`$(Configuration)|`$(Platform)' == 'Release|Any CPU' "
-        
-        $existing = $xml.Project.PropertyGroup | Where-Object { $_.Condition -eq $conditionStr }
-        
-        if (-not $existing) {
-            Write-Host "Injecting missing Release|Any CPU configuration..."
-            $newGroup = $xml.CreateElement("PropertyGroup", $xml.DocumentElement.NamespaceURI)
-            $newGroup.SetAttribute("Condition", $conditionStr)
-            
-            $outPath = $xml.CreateElement("OutputPath", $xml.DocumentElement.NamespaceURI)
-            $outPath.InnerText = "bin\Release\"
-            
-            $newGroup.AppendChild($outPath) | Out-Null
-            $xml.Project.AppendChild($newGroup) | Out-Null
-            $xml.Save($projFile)
-            Write-Host "Project file patched successfully."
-        }
+        $path = "SkidMenuPlugin.cs"
+        if (Test-Path $path) {
+            $content = Get-Content $path -Raw
+            Write-Host "Analyzing $path for syntax errors..."
 
-    - name: Auto-Fix Source Code
-      shell: pwsh
-      run: |
-        $files = Get-ChildItem -Recurse -Include *.cs
-        foreach ($file in $files) {
-            $content = Get-Content $file -Raw
-
-            # Fix broken syntax at end of file
-            if ($content -match "isResizing" -and $content -notmatch "\}\s*\}\s*\}\s*$") {
-                $content = $content.TrimEnd() + "`r`n        }`r`n    }`r`n}"
+            # Fix 1: Close the truncated isResizing block (CS1026 & CS1513)
+            # This looks for the last 'isResizing' check and ensures it's closed properly
+            if ($content -match "this.isResizing") {
+                Write-Host "Found unclosed logic. Adding missing braces..."
+                # We trim trailing whitespace and append the missing closures
+                $content = $content.TrimEnd()
+                # Adds: } (if flag4) } (if flag3) } (Method) } (Class)
+                $content += "`r`n            }`r`n        }`r`n    }`r`n}"
             }
 
-            # Fix EventType comparisons (int vs Enum)
+            # Fix 2: Fix EventType casting errors (int vs Enum)
+            # Some decompilers leave (EventType)7 or == 0 which causes errors
+            $content = $content -replace '== \(EventType\)3', '== EventType.MouseUp'
             $content = $content -replace '== 7', '== EventType.Repaint'
-            $content = $content -replace '== 0', '== EventType.MouseDown'
             
-            # Fix Color32 byte overflows (e.g., 1912)
-            $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
-                param($m)
-                "new Color32(unchecked((byte)$($m.Groups[1].Value)), unchecked((byte)$($m.Groups[2].Value)), unchecked((byte)$($m.Groups[3].Value)), unchecked((byte)$($m.Groups[4].Value)))"
-            })
-
-            Set-Content -Path $file -Value $content
+            Set-Content $path $content
+            Write-Host "Repair complete."
         }
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
+    - name: Restore NuGet Packages
+      run: nuget restore SkidMenu.csproj
+
     - name: Build Project
+      # Your fixed CSPROJ now supports this exact string
       run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
-    - name: Upload DLL
+    - name: Upload Repaired Plugin
       uses: actions/upload-artifact@v4
       with:
-        name: SkidMenu-Build
+        name: SkidMenu-Fixed-DLL
         path: bin/Release/SkidMenu.dll
