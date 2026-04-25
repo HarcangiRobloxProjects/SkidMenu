@@ -1,4 +1,4 @@
-name: SkidMenu Final Brace Alignment
+name: SkidMenu Auto-Repair & Build
 
 on:
   push:
@@ -13,32 +13,39 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Final Syntax Repair
+      - name: Bulk Repair Source Code
         shell: pwsh
         run: |
-          $path = "SkidMenuPlugin.cs"
-          $content = Get-Content $path -Raw
-          
-          Write-Host "Re-aligning braces for the final time..."
+          $files = Get-ChildItem -Recurse -Include *.cs
+          foreach ($file in $files) {
+              $content = Get-Content $file.FullName -Raw
+              Write-Host "Repairing $($file.Name)..."
 
-          # 1. Fix the truncated logic lines
-          $content = $content -replace 'this\.isResizing = flag4', 'this.isResizing = flag4;'
-          $content = $content -replace 'this\.isResizing = flag2', 'this.isResizing = flag2;'
+              # 1. Fix Ambiguous GUILayout calls by adding explicit null cast
+              $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
+              $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
 
-          # 2. Fix the Ambiguous GUILayout calls
-          $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
-          $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+              # 2. Fix Color32 Byte Overflows (e.g., new Color32(1912, ...))
+              # We use 'unchecked' to allow the overflow like the original decompiler intended
+              $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
+                  param($m)
+                  "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
+              })
 
-          # 3. THE 4-BRACE SOLUTION
-          # We shave off everything at the end and add exactly 4 braces.
-          # 1: Close the truncated logic block/method
-          # 2: Close the Method/Class member
-          # 3: Close the Class
-          # 4: Close the Namespace
-          $content = $content.TrimEnd().TrimEnd('}').TrimEnd().TrimEnd('}').TrimEnd().TrimEnd('}').TrimEnd().TrimEnd('}')
-          $content += "`r`n            }`r`n        }`r`n    }`r`n}"
+              # 3. Fix EventType vs Int comparisons (CS0019)
+              $content = $content -replace '== 7', '== (EventType)7'
+              $content = $content -replace '== 0', '== (EventType)0'
+              $content = $content -replace '== 3', '== (EventType)3'
 
-          Set-Content $path $content -Encoding UTF8
+              # 4. Fix TextAnchor to TMPro alignment (CS0266)
+              $content = $content -replace '\.alignment = \(TextAnchor\)', '.alignment = (TMPro.TextAlignmentOptions)'
+              
+              # 5. Fix remaining "isResizing" truncation from earlier runs
+              $content = $content -replace 'this\.isResizing = flag4', 'this.isResizing = flag4;'
+              $content = $content -replace 'this\.isResizing = flag2', 'this.isResizing = flag2;'
+
+              Set-Content $file.FullName $content -Encoding UTF8
+          }
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -46,10 +53,9 @@ jobs:
       - name: Build Project
         run: msbuild SkidMenu.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
-    # Only upload if the build actually succeeds this time!
       - name: Upload DLL
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Built-DLL
+          name: SkidMenu-Repaired
           path: bin/Release/SkidMenu.dll
