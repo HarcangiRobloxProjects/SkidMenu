@@ -1,2 +1,0 @@
-C:\Users\info\Downloads\SkidMenu\overload\obj\Release\SkidMenu.csproj.AssemblyReference.cache
-C:\Users\info\Downloads\SkidMenu\overload\obj\Release\SkidMenu.csproj.CoreCompileInputs.cache
