@@ -1,4 +1,4 @@
-name: SkidMenu Auto-Repair & Build
+name: SkidMenu Nuclear Repair & Build
 
 on:
   push:
@@ -13,36 +13,53 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Bulk Repair Source Code
+      - name: Surgical Code Repair
         shell: pwsh
         run: |
+          $path = "SkidMenuPlugin.cs"
+          $lines = Get-Content $path
+          
+          # 1. FIND THE LAST GOOD LINE
+          # We search for a line that looks like a finished instruction or common menu logic
+          # and discard everything after it that looks like decompiler noise.
+          $lastValidIndex = 0
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -like "*GUILayout.EndScrollView()*" -or $lines[$i] -like "*GUI.DragWindow()*") {
+                  $lastValidIndex = $i
+              }
+          }
+
+          if ($lastValidIndex -gt 0) {
+              Write-Host "Truncating broken decompiler output at line $($lastValidIndex + 1)"
+              $newContent = $lines[0..$lastValidIndex]
+              # Close the method, the class, and the namespace
+              $newContent += "        }"
+              $newContent += "    }"
+              $newContent += "}"
+              $newContent | Set-Content $path -Encoding UTF8
+          }
+
+          # 2. BULK REPAIR (Apply to all files including HostCommandPatch)
           $files = Get-ChildItem -Recurse -Include *.cs
           foreach ($file in $files) {
               $content = Get-Content $file.FullName -Raw
-              Write-Host "Repairing $($file.Name)..."
-
-              # 1. Fix Ambiguous GUILayout calls by adding explicit null cast
+              
+              # Fix Ambiguous GUILayout
               $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
               $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
-
-              # 2. Fix Color32 Byte Overflows (e.g., new Color32(1912, ...))
-              # We use 'unchecked' to allow the overflow like the original decompiler intended
+              
+              # Fix Byte Overflows in Color32
               $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
                   param($m)
                   "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
               })
 
-              # 3. Fix EventType vs Int comparisons (CS0019)
+              # Fix EventType vs Int
               $content = $content -replace '== 7', '== (EventType)7'
               $content = $content -replace '== 0', '== (EventType)0'
-              $content = $content -replace '== 3', '== (EventType)3'
-
-              # 4. Fix TextAnchor to TMPro alignment (CS0266)
-              $content = $content -replace '\.alignment = \(TextAnchor\)', '.alignment = (TMPro.TextAlignmentOptions)'
               
-              # 5. Fix remaining "isResizing" truncation from earlier runs
-              $content = $content -replace 'this\.isResizing = flag4', 'this.isResizing = flag4;'
-              $content = $content -replace 'this\.isResizing = flag2', 'this.isResizing = flag2;'
+              # Fix TextAnchor cast
+              $content = $content -replace '\.alignment = \(TextAnchor\)', '.alignment = (TMPro.TextAlignmentOptions)'
 
               Set-Content $file.FullName $content -Encoding UTF8
           }
@@ -57,5 +74,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Repaired
+          name: SkidMenu-Final-Build
           path: bin/Release/SkidMenu.dll
