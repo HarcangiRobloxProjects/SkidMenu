@@ -1,4 +1,4 @@
-name: SkidMenu Auto-Closure & Build
+name: SkidMenu Force-Repair & Build
 
 on:
   push:
@@ -13,16 +13,33 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Advanced Syntax & Brace Repair
+      - name: Surgical Code Repair
         shell: pwsh
         run: |
           $path = "SkidMenuPlugin.cs"
-          $content = Get-Content $path -Raw
+          $lines = Get-Content $path
           
-          Write-Host "Repairing global syntax errors..."
-          # Fix Ambiguous GUILayout
+          # 1. TRUNCATE THE GARBAGE
+          # Find the last stable line and discard everything after it
+          $lastValidIndex = 0
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -like "*GUILayout.EndScrollView()*" -or $lines[$i] -like "*GUI.DragWindow()*") {
+                  $lastValidIndex = $i
+              }
+          }
+
+          if ($lastValidIndex -gt 0) {
+              Write-Host "Truncating broken code at line $($lastValidIndex + 1)"
+              $lines = $lines[0..$lastValidIndex]
+          }
+          $content = $lines -join "`r`n"
+
+          # 2. FIX UNITY/IL2CPP AMBIGUITY
+          Write-Host "Fixing IL2CPP specific syntax errors..."
           $content = $content -replace 'GUILayout\.BeginHorizontal\(\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
           $content = $content -replace 'GUILayout\.BeginVertical\(\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
+          $content = $content -replace '== 7', '== (EventType)7'
+          $content = $content -replace '== 0', '== (EventType)0'
           
           # Fix Byte Overflows in Color32
           $content = [regex]::Replace($content, 'new Color32\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+)\)', {
@@ -30,21 +47,14 @@ jobs:
               "new Color32(unchecked((byte)$($m.Groups[1].Value.Trim())), unchecked((byte)$($m.Groups[2].Value.Trim())), unchecked((byte)$($m.Groups[3].Value.Trim())), unchecked((byte)$($m.Groups[4].Value.Trim())))"
           })
 
-          # Fix EventType vs Int
-          $content = $content -replace '== 7', '== (EventType)7'
-          $content = $content -replace '== 0', '== (EventType)0'
-          
-          Write-Host "Balancing braces..."
-          # Count open vs closed braces
+          # 3. MATHEMATICAL BRACE BALANCING
           $openBraces = ([regex]::Matches($content, "{")).Count
           $closeBraces = ([regex]::Matches($content, "}")).Count
           $needed = $openBraces - $closeBraces
 
           if ($needed -gt 0) {
-              Write-Host "Adding $needed missing closing braces."
-              for ($i = 0; $i -lt $needed; $i++) {
-                  $content += "`r`n}"
-              }
+              Write-Host "Closing $needed unclosed blocks..."
+              for ($i = 0; $i -lt $needed; $i++) { $content += "`r`n}" }
           }
 
           Set-Content $path $content -Encoding UTF8
@@ -59,5 +69,5 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SkidMenu-Built-DLL
+          name: SkidMenu-Build
           path: bin/Release/SkidMenu.dll
