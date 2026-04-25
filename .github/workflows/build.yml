@@ -12,37 +12,35 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Auto-Fix IL2CPP Type Ambiguity and Casts
+    - name: Auto-Fix IL2CPP Type Conflicts
       shell: pwsh
       run: |
         $files = Get-ChildItem -Recurse -Include *.cs
         foreach ($file in $files) {
             $content = Get-Content $file -Raw
 
-            # 1. Resolve GUILayout Ambiguity (CS0121)
-            # IL2CPP requires explicit casting to (GUILayoutOption[]) for BeginHorizontal/Vertical
-            $content = $content -replace 'GUILayout\.BeginHorizontal\(null\)', 'GUILayout.BeginHorizontal((GUILayoutOption[])null)'
-            $content = $content -replace 'GUILayout\.BeginVertical\(null\)', 'GUILayout.BeginVertical((GUILayoutOption[])null)'
-            $content = $content -replace 'GUILayout\.BeginArea\(rect2\)', 'GUILayout.BeginArea(rect2, (GUIStyle)null)'
-            
-            # 2. Fix Text Alignment and Style Enums (CS0266)
-            # IMGUI often uses ints, but IL2CPP requires the specific Enum type
-            $content = $content -replace '\(TextAnchor\)4', 'UnityEngine.TextAnchor.MiddleCenter'
-            $content = $content -replace '\(FontStyle\)1', 'UnityEngine.FontStyle.Bold'
-            
-            # 3. Force Byte Casting for Color32 (CS1503)
-            # The compiler fails to implicitly convert ints (0-255) to bytes in BepInEx 6
-            $content = $content -replace 'new Color32\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
+            # 1. Add missing namespaces to HostCommandPatch
+            if ($file.Name -eq "HostCommandPatch.cs" -and $content -notmatch "using Il2CppInterop.Runtime.InteropTypes.Arrays;") {
+                $content = "using Il2CppInterop.Runtime.InteropTypes.Arrays;`r`n" + $content
+            }
+
+            # 2. Fix GUILayout Ambiguity (Force cast to GUILayoutOption array)
+            # We use the full namespace to prevent CS0246 errors
+            $content = $content -replace 'GUILayout\.BeginHorizontal\(', 'GUILayout.BeginHorizontal((Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppReferenceArray<GUILayoutOption>)null'
+            $content = $content -replace 'GUILayout\.BeginVertical\(', 'GUILayout.BeginVertical((Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppReferenceArray<GUILayoutOption>)null'
+            $content = $content -replace 'nullnull', 'null'
+
+            # 3. Fix Color32 Byte Casting (Only for numbers 0-255)
+            # This ignores large numbers like 1912 that were causing CS0221
+            $content = $content -replace 'new Color32\((?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+),\s*(?!\d{3,})(\d+)\)', 'new Color32((byte)$1, (byte)$2, (byte)$3, (byte)$4)'
             $content = $content -replace 'byte\.MaxValue', '(byte)255'
 
-            # 4. Fix EventType Ambiguity (CS0019)
-            # Replaces (EventType)3 and (EventType)1 with proper names for better compatibility
-            $content = $content -replace '\(EventType\)3', 'EventType.MouseDrag'
-            $content = $content -replace '\(EventType\)1', 'EventType.MouseUp'
-
-            # 5. Fix Array Conversions
-            # Helps with PlayerControl.AllPlayerControls.ToArray() ambiguity
-            $content = $content -replace '\.ToArray\(\)', '.Cast<Il2CppReferenceArray<PlayerControl>>().ToArray()'
+            # 4. Fix EventType comparison (CS0019)
+            $content = $content -replace '== 7', '== EventType.Repaint'
+            $content = $content -replace '== 0', '== EventType.MouseDown'
+            
+            # 5. Fix TMPro Alignment
+            $content = $content -replace 'UnityEngine\.TextAnchor', 'TMPro.TextAlignmentOptions'
 
             Set-Content -Path $file -Value $content
         }
